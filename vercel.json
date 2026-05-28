@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "standalone.html", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "/standalone.html" }
+  ]
+}

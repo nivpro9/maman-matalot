@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ממן מטלות 🏠</title>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode:'class', theme:{ extend:{ fontFamily:{ sans:['Heebo','sans-serif'] } } } };
+  </script>
+
+  <!-- Firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+  <!-- React 18 + Babel -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    * { box-sizing:border-box; }
+    body { font-family:'Heebo',system-ui,sans-serif; direction:rtl; margin:0; }
+
+    @keyframes blob { 0%{transform:translate(0,0) scale(1)} 33%{transform:translate(30px,-40px) scale(1.1)} 66%{transform:translate(-20px,20px) scale(0.9)} 100%{transform:translate(0,0) scale(1)} }
+    @keyframes slideUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+    @keyframes popIn { 0%{transform:scale(0)} 70%{transform:scale(1.15)} 100%{transform:scale(1)} }
+    @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-10px)} 40%{transform:translateX(10px)} 60%{transform:translateX(-8px)} 80%{transform:translateX(8px)} }
+    @keyframes checkBounce { 0%{transform:scale(0)} 60%{transform:scale(1.3)} 100%{transform:scale(1)} }
+
+    .blob   { animation:blob 7s infinite; }
+    .blob-2 { animation:blob 7s 2s infinite; }
+    .blob-3 { animation:blob 7s 4s infinite; }
+    .slide-up  { animation:slideUp 0.4s ease-out both; }
+    .fade-in   { animation:fadeIn 0.25s ease-out; }
+    .pop-in    { animation:popIn 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+
+    ::-webkit-scrollbar { width:5px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:rgba(0,0,0,0.12); border-radius:99px; }
+    .dark ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.12); }
+  </style>
+</head>
+<body class="min-h-screen bg-white dark:bg-gray-950 transition-colors duration-300">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef, useMemo } = React;
+
+    // ─── Firebase config ──────────────────────────────────────────────────────
+    // Fill in your Firebase Realtime Database config for real-time sync.
+    // Create a free project at https://console.firebase.google.com
+    const FIREBASE_CONFIG = {
+      apiKey:       '',
+      authDomain:   '',
+      databaseURL:  '',  // Required: e.g. https://my-app-default-rtdb.firebaseio.com
+      projectId:    '',
+    };
+
+    // ─── Constants ─────────────────────────────────────────────────────────────
+    const USERS = {
+      '2661': { code:'2661', name:'ניבו',     color:'#3B82F6' },
+      '2666': { code:'2666', name:'רונוס',    color:'#8B5CF6' },
+      '8333': { code:'8333', name:'אבא אילן', color:'#10B981' },
+      '9090': { code:'9090', name:'דדי',      color:'#F59E0B' },
+      '5252': { code:'5252', name:'שלוי',     color:'#EC4899' },
+      '7017': { code:'7017', name:'מוגי',     color:'#EF4444' },
+    };
+
+    const DEFAULT_TASKS = [
+      { id:'fixed_0', title:'לטאטא בית + דריימי',                                          emoji:'🧹',  isFixed:true },
+      { id:'fixed_1', title:'סידור כלים מהמייבש לארון ומגרות + ניקיון אבק וסידור שולחן', emoji:'🍽️', isFixed:true },
+      { id:'fixed_2', title:'ניקיון מטבח, כיור, שיש ופינת אוכל',                          emoji:'🫧',  isFixed:true },
+    ];
+
+    const DAYS = [
+      { key:'tuesday',  label:'שלישי',  fullLabel:'מטלות שלישי',  emoji:'📅', dayNum:2, grad:'linear-gradient(135deg,#3B82F6,#4338CA)', color:'#3B82F6' },
+      { key:'friday',   label:'שישי',   fullLabel:'מטלות שישי',   emoji:'✨', dayNum:5, grad:'linear-gradient(135deg,#8B5CF6,#6D28D9)', color:'#8B5CF6' },
+      { key:'saturday', label:'מוצ"ש', fullLabel:'מטלות מוצ"ש', emoji:'🌙', dayNum:6, grad:'linear-gradient(135deg,#EC4899,#BE185D)', color:'#EC4899' },
+    ];
+
+    const HE_MONTHS   = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+    const CUSTOM_EMOJIS = ['🧹','🍽️','🫧','🧺','🛒','🚿','📦','🪴','💊','🐕','📝'];
+
+    // ─── Date helpers ──────────────────────────────────────────────────────────
+
+    // Returns the relevant calendar date (YYYY-MM-DD) for a given day-of-week.
+    // Shows this week's occurrence while it's 0-2 days in the past.
+    // After 2 days, rolls to next week's occurrence.
+    function getRelevantDate(dayNum) {
+      const now = new Date();
+      now.setHours(0,0,0,0);
+      let diff = now.getDay() - dayNum;
+      if (diff < 0) diff += 7;               // upcoming day this week
+      const target = new Date(now);
+      target.setDate(now.getDate() - diff);
+      if (diff > 2) target.setDate(target.getDate() + 7); // expired → next week
+      // Use local date parts to avoid UTC offset shifting the date by -1 in UTC+2/+3
+      return [
+        target.getFullYear(),
+        String(target.getMonth() + 1).padStart(2, '0'),
+        String(target.getDate()).padStart(2, '0'),
+      ].join('-');
+    }
+
+    function daysAgo(dateStr) {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const target = new Date(y, m - 1, d); // local midnight
+      const now = new Date(); now.setHours(0,0,0,0);
+      return Math.round((now - target) / 86400000);
+    }
+
+    function getDateRelLabel(dateStr) {
+      const d = daysAgo(dateStr);
+      if (d === 0)  return 'היום';
+      if (d === -1) return 'מחר';
+      if (d === 1)  return 'אתמול';
+      if (d === 2)  return 'שלשום';
+      if (d < -1)   return `עוד ${-d} ימים`;
+      return `לפני ${d} ימים`;
+    }
+
+    function formatDateHe(dateStr) {
+      const d = new Date(dateStr + 'T00:00:00');
+      return `${d.getDate()} ב${HE_MONTHS[d.getMonth()]}`;
+    }
+
+    function fmtTime(ts) {
+      const d = new Date(ts);
+      return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}, ${d.getDate()} ב${HE_MONTHS[d.getMonth()]}`;
+    }
+
+    function timeAgo(ts) {
+      const s = Math.floor((Date.now() - ts) / 1000);
+      if (s < 60)  return 'עכשיו';
+      const m = Math.floor(s/60);
+      if (m < 60)  return `לפני ${m} דק'`;
+      const h = Math.floor(m/60);
+      if (h < 24)  return `לפני ${h} שע'`;
+      return `לפני ${Math.floor(h/24)} ימים`;
+    }
+
+    // ─── Firebase / LocalStorage store ────────────────────────────────────────
+    const fbOk = Boolean(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.databaseURL);
+    let db = null;
+    if (fbOk) {
+      try {
+        const fbApp = firebase.apps.length ? firebase.apps[0] : firebase.initializeApp(FIREBASE_CONFIG);
+        db = firebase.database(fbApp);
+      } catch(e) { console.warn('Firebase init failed:', e); }
+    }
+
+    function lsGet(key, def) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; } }
+    function lsSet(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
+
+    // Remove task and activity data older than 3 days
+    function cleanupOldData() {
+      try {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - 3);
+        const cutoffStr = cutoff.toISOString().split('T')[0];
+        Object.keys(localStorage)
+          .filter(k => k.startsWith('maman_tasks_') && k.replace('maman_tasks_','') <= cutoffStr)
+          .forEach(k => localStorage.removeItem(k));
+        if (db) {
+          db.ref('dailyTasks').once('value').then(snap => {
+            const data = snap.val(); if (!data) return;
+            const updates = {};
+            Object.keys(data).filter(d => d <= cutoffStr).forEach(d => { updates[`dailyTasks/${d}`] = null; });
+            if (Object.keys(updates).length) db.ref('/').update(updates);
+          }).catch(() => {});
+        }
+      } catch {}
+    }
+
+    function subscribeToTasksForDate(dateStr, cb) {
+      if (db) {
+        const r = db.ref(`dailyTasks/${dateStr}`);
+        r.on('value', s => cb(s.val() || {}));
+        return () => r.off();
+      }
+      const key = `maman_tasks_${dateStr}`;
+      const notify = () => cb(lsGet(key, {}));
+      notify();
+      const id = setInterval(notify, 1500);
+      window.addEventListener('_maman', notify);
+      return () => { clearInterval(id); window.removeEventListener('_maman', notify); };
+    }
+
+    async function toggleTaskForDate(dateStr, taskKey, completed, userId, userName, taskTitle, dayLabel, userColor) {
+      const state = completed
+        ? { completed:true, completedBy:userId, completedAt:Date.now() }
+        : { completed:false, completedBy:null, completedAt:null };
+      const act = { userId, userName, userColor, taskTitle, dayLabel, dateStr, action:completed?'completed':'uncompleted', timestamp:Date.now() };
+      if (db) {
+        await db.ref(`dailyTasks/${dateStr}/${taskKey}`).update(state);
+        await db.ref('activity').push(act);
+      } else {
+        const key = `maman_tasks_${dateStr}`;
+        const tasks = lsGet(key, {});
+        tasks[taskKey] = { ...tasks[taskKey], ...state };
+        lsSet(key, tasks);
+        const acts = lsGet('maman_activity', []);
+        acts.unshift({ id:String(Date.now()), ...act });
+        lsSet('maman_activity', acts.slice(0,50));
+        window.dispatchEvent(new CustomEvent('_maman'));
+      }
+    }
+
+    async function addCustomTask(dateStr, title, emoji, userId, userName) {
+      const ts = Date.now();
+      const taskKey = `custom_${ts}`;
+      const task = { title, emoji, isCustom:true, createdBy:userId, createdByName:userName, createdAt:ts, completed:false };
+      if (db) {
+        await db.ref(`dailyTasks/${dateStr}/${taskKey}`).set(task);
+      } else {
+        const key = `maman_tasks_${dateStr}`;
+        const tasks = lsGet(key, {});
+        tasks[taskKey] = task;
+        lsSet(key, tasks);
+        window.dispatchEvent(new CustomEvent('_maman'));
+      }
+    }
+
+    async function deleteCustomTask(dateStr, taskKey) {
+      if (db) {
+        await db.ref(`dailyTasks/${dateStr}/${taskKey}`).remove();
+      } else {
+        const key = `maman_tasks_${dateStr}`;
+        const tasks = lsGet(key, {});
+        delete tasks[taskKey];
+        lsSet(key, tasks);
+        window.dispatchEvent(new CustomEvent('_maman'));
+      }
+    }
+
+    function subscribeToActivity(cb) {
+      if (db) {
+        const r = db.ref('activity').limitToLast(25);
+        r.on('value', s => {
+          const data = s.val();
+          if (!data) { cb([]); return; }
+          cb(Object.entries(data).map(([id,v]) => ({id,...v})).sort((a,b) => b.timestamp-a.timestamp));
+        });
+        return () => r.off();
+      }
+      const notify = () => cb(lsGet('maman_activity',[]));
+      notify();
+      const id = setInterval(notify, 1500);
+      window.addEventListener('_maman', notify);
+      return () => { clearInterval(id); window.removeEventListener('_maman', notify); };
+    }
+
+    // Stats: count completed actions per user from activity log (last 7 days)
+    function subscribeToStats(cb) {
+      return subscribeToActivity(activities => {
+        const weekAgo = Date.now() - 7*24*60*60*1000;
+        const stats = {};
+        activities
+          .filter(a => a.action === 'completed' && a.timestamp > weekAgo)
+          .forEach(a => { stats[a.userId] = (stats[a.userId] || 0) + 1; });
+        cb(stats);
+      });
+    }
+
+    // ─── LoginScreen ───────────────────────────────────────────────────────────
+    function LoginScreen({ onLogin }) {
+      const [pin, setPin]     = useState('');
+      const [error, setError] = useState(false);
+      const [shake, setShake] = useState(false);
+
+      function press(d) {
+        if (pin.length >= 4) return;
+        const next = pin + d;
+        setPin(next); setError(false);
+        if (next.length === 4) {
+          setTimeout(() => {
+            if (USERS[next]) onLogin(next);
+            else { setShake(true); setError(true); setTimeout(() => { setPin(''); setShake(false); }, 700); }
+          }, 90);
+        }
+      }
+      function del() { setPin(p => p.slice(0,-1)); setError(false); }
+
+      return (
+        <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:'16px', overflow:'hidden', position:'relative', background:'linear-gradient(135deg,#1e1b4b 0%,#312e81 35%,#4c1d95 70%,#1f2937 100%)' }}>
+          <div className="blob" style={{ position:'absolute',top:'-80px',right:'-80px',width:'320px',height:'320px',borderRadius:'50%',background:'rgba(139,92,246,0.22)',filter:'blur(70px)',pointerEvents:'none' }}/>
+          <div className="blob-2" style={{ position:'absolute',bottom:'-80px',left:'-80px',width:'320px',height:'320px',borderRadius:'50%',background:'rgba(79,70,229,0.22)',filter:'blur(70px)',pointerEvents:'none' }}/>
+
+          <div className="slide-up" style={{ position:'relative',zIndex:10,width:'100%',maxWidth:'320px', background:'rgba(255,255,255,0.07)',backdropFilter:'blur(24px)', borderRadius:'28px',padding:'36px 28px', border:'1px solid rgba(255,255,255,0.12)', boxShadow:'0 30px 60px rgba(0,0,0,0.45)' }}>
+            <div style={{ textAlign:'center',marginBottom:'32px' }}>
+              <div style={{ fontSize:'60px',marginBottom:'10px',animation:'popIn 0.5s 0.15s both',display:'block' }}>🏠</div>
+              <h1 style={{ color:'white',fontSize:'30px',fontWeight:'900',letterSpacing:'-0.6px',margin:'0 0 4px' }}>ממן מטלות</h1>
+              <p style={{ color:'rgba(255,255,255,0.45)',fontSize:'13px',margin:0 }}>ניהול מטלות בית משפחתיות</p>
+            </div>
+
+            <div style={{ display:'flex',justifyContent:'center',gap:'18px',marginBottom:'28px', animation:shake?'shake 0.55s':'none' }}>
+              {[0,1,2,3].map(i => (
+                <div key={i} style={{ width:'15px',height:'15px',borderRadius:'50%', background:error?'#EF4444':i<pin.length?'#A78BFA':'rgba(255,255,255,0.18)', boxShadow:!error&&i<pin.length?'0 0 14px rgba(167,139,250,0.8)':'none', transition:'all 0.18s ease', transform:(!shake&&i===pin.length-1)?'scale(1.35)':'scale(1)' }}/>
+              ))}
+            </div>
+
+            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px' }}>
+              {['1','2','3','4','5','6','7','8','9'].map(d => <PadKey key={d} d={d} onClick={() => press(d)} />)}
+              <div/><PadKey d="0" onClick={() => press('0')} /><PadKey d="⌫" onClick={del} faint />
+            </div>
+
+            {error && <p className="fade-in" style={{ textAlign:'center',color:'#F87171',fontSize:'13px',fontWeight:'500',margin:'16px 0 0' }}>קוד לא מוכר — נסה שנית</p>}
+            <p style={{ textAlign:'center',color:'rgba(255,255,255,0.28)',fontSize:'12px',lineHeight:'1.65',margin:'20px 0 0' }}>הכנס 4 ספרות אחרונות<br/>של מספר הטלפון שלך</p>
+          </div>
+        </div>
+      );
+    }
+
+    function PadKey({ d, onClick, faint }) {
+      const [down, setDown] = useState(false);
+      return (
+        <button onPointerDown={() => setDown(true)} onPointerUp={() => { setDown(false); onClick(); }} onPointerLeave={() => setDown(false)}
+          style={{ background:down?'rgba(255,255,255,0.28)':faint?'rgba(255,255,255,0.04)':'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'16px', padding:'18px 8px', color:faint?'rgba(255,255,255,0.38)':'white', fontSize:'20px', fontWeight:'600', cursor:'pointer', fontFamily:'Heebo,sans-serif', transform:down?'scale(0.9)':'scale(1)', transition:'all 0.1s', WebkitTapHighlightColor:'transparent' }}>
+          {d}
+        </button>
+      );
+    }
+
+    // ─── AddTaskInput ──────────────────────────────────────────────────────────
+    function AddTaskInput({ onAdd, dark }) {
+      const [open, setOpen]   = useState(false);
+      const [title, setTitle] = useState('');
+      const [emoji, setEmoji] = useState('📝');
+      const inputRef = useRef(null);
+
+      useEffect(() => { if (open && inputRef.current) inputRef.current.focus(); }, [open]);
+
+      function submit() {
+        if (!title.trim()) return;
+        onAdd(title.trim(), emoji);
+        setTitle(''); setEmoji('📝'); setOpen(false);
+      }
+
+      const borderCol = dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)';
+
+      if (!open) return (
+        <button onClick={() => setOpen(true)} style={{ width:'100%', border:`1.5px dashed ${borderCol}`, borderRadius:'14px', padding:'11px', background:'transparent', color:dark?'rgba(255,255,255,0.38)':'rgba(0,0,0,0.28)', fontSize:'13px', fontWeight:'600', cursor:'pointer', fontFamily:'Heebo,sans-serif', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px', WebkitTapHighlightColor:'transparent', transition:'all 0.15s' }}>
+          <span style={{ fontSize:'16px', lineHeight:1 }}>＋</span>
+          <span>הוסף מטלה</span>
+        </button>
+      );
+
+      return (
+        <div className="fade-in" style={{ border:`1.5px solid ${borderCol}`, borderRadius:'14px', padding:'12px', background:dark?'rgba(255,255,255,0.05)':'rgba(255,255,255,0.9)', backdropFilter:'blur(8px)' }}>
+          {/* Emoji picker */}
+          <div style={{ display:'flex', gap:'5px', marginBottom:'10px', flexWrap:'wrap' }}>
+            {CUSTOM_EMOJIS.map(e => (
+              <button key={e} onClick={() => setEmoji(e)} style={{ fontSize:'18px', background:emoji===e?(dark?'rgba(255,255,255,0.15)':'rgba(99,102,241,0.1)'):'transparent', border:`1.5px solid ${emoji===e?'rgba(99,102,241,0.45)':'transparent'}`, borderRadius:'8px', padding:'3px 5px', cursor:'pointer', transition:'all 0.12s', WebkitTapHighlightColor:'transparent' }}>
+                {e}
+              </button>
+            ))}
+          </div>
+          {/* Input row */}
+          <div style={{ display:'flex', gap:'8px', alignItems:'center' }}>
+            <input ref={inputRef} value={title} onChange={e => setTitle(e.target.value)}
+              onKeyDown={e => { if (e.key==='Enter') submit(); if (e.key==='Escape') setOpen(false); }}
+              placeholder="שם המטלה..."
+              style={{ flex:1, background:dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.04)', border:`1px solid ${borderCol}`, borderRadius:'10px', padding:'8px 12px', fontSize:'13px', color:dark?'white':'#1F2937', fontFamily:'Heebo,sans-serif', outline:'none', direction:'rtl', minWidth:0 }}
+            />
+            <button onClick={submit} style={{ background:'#10B981', border:'none', borderRadius:'10px', padding:'8px 13px', color:'white', fontSize:'14px', cursor:'pointer', fontWeight:'700', fontFamily:'Heebo,sans-serif', flexShrink:0, WebkitTapHighlightColor:'transparent' }}>✓</button>
+            <button onClick={() => setOpen(false)} style={{ background:'transparent', border:`1px solid ${borderCol}`, borderRadius:'10px', padding:'8px 10px', color:dark?'#9CA3AF':'#9CA3AF', cursor:'pointer', fontSize:'14px', fontFamily:'Heebo,sans-serif', flexShrink:0, WebkitTapHighlightColor:'transparent' }}>✕</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── TaskItem ──────────────────────────────────────────────────────────────
+    function TaskItem({ task, state, currentUserId, onToggle, onDelete, dark, idx }) {
+      const done    = state?.completed ?? false;
+      const byUser  = state?.completedBy ? USERS[state.completedBy] : null;
+      const isOwn   = state?.completedBy === currentUserId;
+      const [bounce, setBounce] = useState(false);
+
+      function handleToggle(e) {
+        if (e.target.closest('.task-delete-btn')) return;
+        setBounce(true); setTimeout(() => setBounce(false), 400);
+        onToggle(!done);
+      }
+
+      const bg     = done ? (dark ? 'rgba(16,185,129,0.1)'  : 'rgba(16,185,129,0.06)') : (dark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.75)');
+      const border = done ? (dark ? 'rgba(16,185,129,0.22)' : 'rgba(16,185,129,0.22)') : (dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)');
+
+      return (
+        <div onClick={handleToggle} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'13px 14px', borderRadius:'14px', cursor:'pointer', background:bg, border:`1px solid ${border}`, backdropFilter:'blur(8px)', transition:'all 0.25s', animation:`slideUp 0.35s ${idx*0.07}s both`, WebkitTapHighlightColor:'transparent', userSelect:'none', position:'relative' }}>
+          {/* Checkbox circle */}
+          <div style={{ width:'28px', height:'28px', borderRadius:'50%', flexShrink:0, border:`2px solid ${done?'#10B981':dark?'rgba(255,255,255,0.22)':'#D1D5DB'}`, background:done?'#10B981':'transparent', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)', transform:bounce?'scale(0.82)':'scale(1)', boxShadow:done?'0 0 0 4px rgba(16,185,129,0.16)':'none' }}>
+            {done && <span style={{ color:'white',fontSize:'13px',fontWeight:'bold',animation:'checkBounce 0.3s' }}>✓</span>}
+          </div>
+
+          {/* Content */}
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+              <span style={{ fontSize:'17px',flexShrink:0 }}>{task.emoji}</span>
+              <span style={{ fontSize:'13px', fontWeight:'500', lineHeight:'1.45', color:done?(dark?'#6B7280':'#9CA3AF'):(dark?'#F3F4F6':'#1F2937'), textDecoration:done?'line-through':'none', transition:'all 0.25s' }}>
+                {task.title}
+              </span>
+            </div>
+
+            {/* Creator badge for custom tasks (when not done) */}
+            {!task.isFixed && !done && task.createdByName && (
+              <div style={{ marginTop:'4px', fontSize:'11px', color:USERS[task.createdBy]?.color || '#6B7280', fontWeight:'500' }}>
+                הוסף ע"י {task.createdByName}
+              </div>
+            )}
+
+            {/* Completion info */}
+            {done && byUser && (
+              <div className="fade-in" style={{ display:'flex',alignItems:'center',gap:'6px',marginTop:'6px',flexWrap:'wrap' }}>
+                <div style={{ width:'18px',height:'18px',borderRadius:'50%',background:byUser.color,color:'white',fontSize:'9px',fontWeight:'700',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>
+                  {byUser.name.charAt(0)}
+                </div>
+                <span style={{ fontSize:'12px',fontWeight:'700',color:byUser.color }}>{byUser.name}</span>
+                {state.completedAt && <span style={{ fontSize:'11px',color:dark?'#6B7280':'#9CA3AF' }}>· {fmtTime(state.completedAt)}</span>}
+              </div>
+            )}
+          </div>
+
+          {/* "My task" badge */}
+          {done && isOwn && (
+            <div className="pop-in" style={{ background:dark?'rgba(16,185,129,0.2)':'rgba(16,185,129,0.1)', color:dark?'#34D399':'#059669', fontSize:'11px',fontWeight:'700', padding:'3px 10px',borderRadius:'999px',flexShrink:0 }}>✓ אתה</div>
+          )}
+
+          {/* Delete button for custom tasks */}
+          {!task.isFixed && onDelete && (
+            <button className="task-delete-btn" onClick={e => { e.stopPropagation(); onDelete(); }}
+              style={{ background:'transparent',border:'none',cursor:'pointer',padding:'4px 6px',color:'rgba(239,68,68,0.55)',fontSize:'15px',flexShrink:0,lineHeight:1,borderRadius:'8px',transition:'all 0.15s',WebkitTapHighlightColor:'transparent' }}
+              title="מחק מטלה">🗑️</button>
+          )}
+        </div>
+      );
+    }
+
+    // ─── DaySection ────────────────────────────────────────────────────────────
+    function DaySection({ day, dateStr, currentUser, dark, sIdx }) {
+      const [rawTasks, setRawTasks] = useState({});
+      const [busy, setBusy]         = useState(new Set());
+
+      useEffect(() => subscribeToTasksForDate(dateStr, setRawTasks), [dateStr]);
+
+      // Separate fixed task states and custom tasks
+      const fixedItems = DEFAULT_TASKS.map(t => ({ ...t, state: rawTasks[t.id] || null }));
+      const customItems = Object.entries(rawTasks)
+        .filter(([k]) => k.startsWith('custom_'))
+        .map(([taskKey, data]) => ({ id:taskKey, title:data.title, emoji:data.emoji||'📝', isFixed:false, createdBy:data.createdBy, createdByName:data.createdByName, createdAt:data.createdAt||0, state:data, taskKey }))
+        .sort((a,b) => a.createdAt - b.createdAt);
+
+      const allItems   = [...fixedItems, ...customItems];
+      const doneCount  = allItems.filter(t => t.state?.completed).length;
+      const totalCount = allItems.length;
+      const allDone    = doneCount === totalCount && totalCount > 0;
+      const pct        = totalCount > 0 ? (doneCount/totalCount)*100 : 0;
+
+      const relLabel   = getDateRelLabel(dateStr);
+      const isToday    = relLabel === 'היום';
+      const ago        = daysAgo(dateStr);
+      const expiring   = ago === 2; // expires tonight/tomorrow
+
+      async function handleToggle(task, completed) {
+        if (busy.has(task.id)) return;
+        setBusy(p => new Set([...p, task.id]));
+        try {
+          await toggleTaskForDate(dateStr, task.id, completed, currentUser.code, currentUser.name, task.title, day.fullLabel, currentUser.color);
+        } finally {
+          setBusy(p => { const n = new Set(p); n.delete(task.id); return n; });
+        }
+      }
+
+      async function handleAddTask(title, emoji) {
+        await addCustomTask(dateStr, title, emoji, currentUser.code, currentUser.name);
+      }
+
+      async function handleDeleteTask(taskKey) {
+        await deleteCustomTask(dateStr, taskKey);
+      }
+
+      return (
+        <div style={{ borderRadius:'22px', overflow:'hidden', animation:`slideUp 0.4s ${sIdx*0.13}s both`, boxShadow:isToday?`0 8px 32px ${day.color}30,0 2px 8px rgba(0,0,0,0.08)`:`0 4px 14px rgba(0,0,0,${dark?'0.2':'0.06'})`, border:isToday?`2px solid ${day.color}30`:`1px solid ${dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.06)'}` }}>
+          {/* Gradient header */}
+          <div style={{ background:day.grad, padding:'16px 18px' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+                <span style={{ fontSize:'22px' }}>{day.emoji}</span>
+                <div>
+                  <div style={{ display:'flex', alignItems:'center', gap:'8px', flexWrap:'wrap' }}>
+                    <h2 style={{ color:'white',fontWeight:'800',fontSize:'15px',margin:0,letterSpacing:'-0.2px' }}>{day.fullLabel}</h2>
+                    {isToday && <span style={{ background:'rgba(255,255,255,0.22)',color:'white',fontSize:'11px',fontWeight:'700',padding:'1px 8px',borderRadius:'99px' }}>היום</span>}
+                    {expiring && <span style={{ background:'rgba(239,68,68,0.35)',color:'white',fontSize:'11px',fontWeight:'700',padding:'1px 8px',borderRadius:'99px' }}>⚠️ נמחק מחר</span>}
+                  </div>
+                  <div style={{ color:'rgba(255,255,255,0.65)',fontSize:'11px',marginTop:'2px' }}>
+                    {relLabel !== 'היום' ? `${relLabel} · ` : ''}{formatDateHe(dateStr)}
+                  </div>
+                </div>
+              </div>
+              <div style={{ textAlign:'left' }}>
+                <div style={{ color:'white',fontWeight:'800',fontSize:'20px',lineHeight:1 }}>{doneCount}/{totalCount}</div>
+                <div style={{ color:'rgba(255,255,255,0.65)',fontSize:'11px' }}>הושלמו</div>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div style={{ marginTop:'12px',height:'5px',background:'rgba(255,255,255,0.22)',borderRadius:'99px',overflow:'hidden' }}>
+              <div style={{ height:'100%',width:`${pct}%`,background:'white',borderRadius:'99px',transition:'width 0.6s ease' }}/>
+            </div>
+            {allDone && totalCount > 0 && (
+              <div className="fade-in" style={{ marginTop:'8px',textAlign:'center',color:'rgba(255,255,255,0.9)',fontSize:'12px',fontWeight:'600' }}>🎉 כל המטלות הושלמו!</div>
+            )}
+          </div>
+
+          {/* Task list */}
+          <div style={{ background:dark?'rgba(17,24,39,0.92)':'rgba(255,255,255,0.88)', backdropFilter:'blur(12px)', padding:'12px', display:'flex', flexDirection:'column', gap:'10px' }}>
+            {allItems.map((task, i) => (
+              <TaskItem
+                key={task.id}
+                task={task}
+                state={task.state}
+                currentUserId={currentUser.code}
+                onToggle={completed => handleToggle(task, completed)}
+                onDelete={!task.isFixed ? () => handleDeleteTask(task.id) : null}
+                dark={dark}
+                idx={i}
+              />
+            ))}
+
+            <AddTaskInput onAdd={handleAddTask} dark={dark} />
+          </div>
+        </div>
+      );
+    }
+
+    // ─── ActivityFeed ──────────────────────────────────────────────────────────
+    function ActivityFeed({ activities, dark }) {
+      const cs = { background:dark?'rgba(255,255,255,0.05)':'rgba(255,255,255,0.88)', backdropFilter:'blur(12px)', borderRadius:'20px', padding:'16px', border:`1px solid ${dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.06)'}`, boxShadow:`0 4px 14px rgba(0,0,0,${dark?'0.2':'0.04'})` };
+      return (
+        <div style={cs}>
+          <div style={{ display:'flex',alignItems:'center',gap:'8px',marginBottom:'14px' }}>
+            <span style={{ fontSize:'16px' }}>⚡</span>
+            <h3 style={{ fontWeight:'700',color:dark?'#F3F4F6':'#374151',fontSize:'14px',margin:0 }}>פעילות אחרונה</h3>
+          </div>
+          {activities.length === 0 ? (
+            <div style={{ textAlign:'center',padding:'20px 0' }}>
+              <div style={{ fontSize:'30px',marginBottom:'8px',opacity:0.35 }}>📋</div>
+              <p style={{ color:dark?'#6B7280':'#9CA3AF',fontSize:'13px',margin:0 }}>עדיין אין פעילות השבוע</p>
+            </div>
+          ) : (
+            <div style={{ display:'flex',flexDirection:'column',gap:'12px',maxHeight:'230px',overflowY:'auto' }}>
+              {activities.map(act => (
+                <div key={act.id} className="fade-in" style={{ display:'flex',alignItems:'flex-start',gap:'10px' }}>
+                  <div style={{ width:'28px',height:'28px',borderRadius:'50%',flexShrink:0,background:act.userColor,color:'white',fontSize:'11px',fontWeight:'700',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:`0 2px 8px ${act.userColor}50` }}>
+                    {act.userName.charAt(0)}
+                  </div>
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <p style={{ fontSize:'12px',color:dark?'#D1D5DB':'#374151',margin:0,lineHeight:'1.55' }}>
+                      <span style={{ fontWeight:'700',color:act.userColor }}>{act.userName}</span>{' '}
+                      {act.action==='completed'
+                        ? <><span style={{ color:dark?'#34D399':'#059669',fontWeight:'600' }}>סיים ✓</span> את <strong style={{ color:dark?'#F9FAFB':'#111827',fontWeight:'600' }}>{act.taskTitle}</strong></>
+                        : <><span style={{ color:dark?'#F87171':'#DC2626',fontWeight:'600' }}>ביטל</span> את <strong style={{ color:dark?'#F9FAFB':'#111827',fontWeight:'600' }}>{act.taskTitle}</strong></>
+                      }
+                    </p>
+                    <div style={{ display:'flex',alignItems:'center',gap:'5px',marginTop:'3px' }}>
+                      <span style={{ fontSize:'11px',color:dark?'#6B7280':'#9CA3AF' }}>{act.dayLabel}</span>
+                      <span style={{ color:dark?'#4B5563':'#D1D5DB' }}>·</span>
+                      <span style={{ fontSize:'11px',color:dark?'#6B7280':'#9CA3AF' }}>{timeAgo(act.timestamp)}</span>
+                    </div>
+                  </div>
+                  <span style={{ fontSize:'14px',flexShrink:0 }}>{act.action==='completed'?'✅':'↩️'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── StatsPanel ────────────────────────────────────────────────────────────
+    function StatsPanel({ stats, dark }) {
+      const MAX     = DEFAULT_TASKS.length * DAYS.length;
+      const entries = Object.entries(USERS).map(([code,u]) => ({ u, count:stats[code]||0 })).filter(e => e.count>0).sort((a,b) => b.count-a.count);
+      const medals  = ['🥇','🥈','🥉'];
+      const cs = { background:dark?'rgba(255,255,255,0.05)':'rgba(255,255,255,0.88)', backdropFilter:'blur(12px)', borderRadius:'20px', padding:'16px', border:`1px solid ${dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.06)'}`, boxShadow:`0 4px 14px rgba(0,0,0,${dark?'0.2':'0.04'})` };
+      return (
+        <div style={cs}>
+          <div style={{ display:'flex',alignItems:'center',gap:'8px',marginBottom:'14px' }}>
+            <span style={{ fontSize:'16px' }}>📊</span>
+            <h3 style={{ fontWeight:'700',color:dark?'#F3F4F6':'#374151',fontSize:'14px',margin:0,flex:1 }}>סטטיסטיקה שבועית</h3>
+            <span style={{ fontSize:'12px',color:dark?'#6B7280':'#9CA3AF' }}>7 ימים אחרונים</span>
+          </div>
+          {entries.length === 0 ? (
+            <div style={{ textAlign:'center',padding:'20px 0' }}>
+              <div style={{ fontSize:'30px',marginBottom:'8px',opacity:0.35 }}>📊</div>
+              <p style={{ color:dark?'#6B7280':'#9CA3AF',fontSize:'13px',margin:0 }}>עדיין אין נתונים</p>
+            </div>
+          ) : (
+            <div style={{ display:'flex',flexDirection:'column',gap:'12px' }}>
+              {entries.map(({ u,count }, i) => (
+                <div key={u.code} style={{ display:'flex',alignItems:'center',gap:'10px' }}>
+                  <div style={{ width:'20px',textAlign:'center',flexShrink:0,fontSize:'15px' }}>
+                    {medals[i]||<span style={{ fontSize:'11px',color:'#9CA3AF',fontWeight:'600' }}>{i+1}</span>}
+                  </div>
+                  <div style={{ width:'26px',height:'26px',borderRadius:'50%',flexShrink:0,background:u.color,color:'white',fontSize:'10px',fontWeight:'700',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:`0 2px 8px ${u.color}40` }}>
+                    {u.name.charAt(0)}
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ display:'flex',justifyContent:'space-between',marginBottom:'5px' }}>
+                      <span style={{ fontSize:'12px',fontWeight:'700',color:dark?'#E5E7EB':'#374151' }}>{u.name}</span>
+                      <span style={{ fontSize:'11px',fontWeight:'700',color:dark?'#9CA3AF':'#6B7280' }}>{count}</span>
+                    </div>
+                    <div style={{ height:'6px',background:dark?'rgba(255,255,255,0.08)':'#F3F4F6',borderRadius:'99px',overflow:'hidden' }}>
+                      <div style={{ height:'100%',width:`${Math.min((count/Math.max(...entries.map(e=>e.count)))*100,100)}%`,background:u.color,borderRadius:'99px',transition:'width 0.7s ease',boxShadow:`0 1px 4px ${u.color}60` }}/>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── Dashboard ─────────────────────────────────────────────────────────────
+    function Dashboard({ user, dark, onToggleDark, onLogout }) {
+      const [activities, setActivities] = useState([]);
+      const [stats,      setStats]      = useState({});
+
+      // Compute relevant dates once on mount (re-evaluate on next render)
+      const dayDates = useMemo(() => {
+        const r = {};
+        DAYS.forEach(d => { r[d.key] = getRelevantDate(d.dayNum); });
+        return r;
+      }, []);
+
+      useEffect(() => {
+        cleanupOldData();
+        const u1 = subscribeToActivity(setActivities);
+        const u2 = subscribeToStats(setStats);
+        return () => { u1(); u2(); };
+      }, []);
+
+      const bg = dark
+        ? 'linear-gradient(135deg,#030712 0%,#0d0a1f 50%,#150a2a 100%)'
+        : 'linear-gradient(150deg,#f0f4ff 0%,#faf5ff 60%,#fff0f6 100%)';
+
+      return (
+        <div style={{ minHeight:'100vh', background:bg, transition:'background 0.3s' }}>
+          {!fbOk && (
+            <div style={{ background:dark?'rgba(120,53,15,0.3)':'rgba(254,243,199,0.9)', borderBottom:`1px solid ${dark?'rgba(251,191,36,0.2)':'rgba(251,191,36,0.4)'}`, padding:'8px 16px', textAlign:'center' }}>
+              <p style={{ color:dark?'#FCD34D':'#92400E',fontSize:'12px',fontWeight:'500',margin:0 }}>
+                📡 מצב הדגמה — הנתונים נשמרים מקומית בלבד. הגדר Firebase לסנכרון בזמן אמת.
+              </p>
+            </div>
+          )}
+
+          {/* Header */}
+          <div style={{ position:'sticky',top:0,zIndex:40, background:dark?'rgba(3,7,18,0.88)':'rgba(255,255,255,0.88)', backdropFilter:'blur(18px)', borderBottom:`1px solid ${dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)'}`, boxShadow:'0 2px 10px rgba(0,0,0,0.07)' }}>
+            <div style={{ maxWidth:'640px',margin:'0 auto',padding:'12px 16px',display:'flex',alignItems:'center',gap:'12px' }}>
+              <div style={{ width:'38px',height:'38px',borderRadius:'50%',flexShrink:0,background:user.color,color:'white',fontWeight:'800',fontSize:'15px',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:`0 4px 14px ${user.color}55` }}>
+                {user.name.charAt(0)}
+              </div>
+              <div style={{ flex:1,minWidth:0 }}>
+                <p style={{ fontSize:'11px',color:dark?'#6B7280':'#9CA3AF',margin:0,lineHeight:1 }}>שלום,</p>
+                <h1 style={{ fontSize:'16px',fontWeight:'900',color:user.color,margin:'2px 0 0',letterSpacing:'-0.3px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{user.name}</h1>
+              </div>
+              {fbOk && <span style={{ fontSize:'16px',flexShrink:0,opacity:0.7 }} title="מחובר לענן">🌐</span>}
+              <button onClick={onToggleDark} style={{ background:'transparent',border:'none',cursor:'pointer',padding:'6px',borderRadius:'10px',fontSize:'20px',lineHeight:1,WebkitTapHighlightColor:'transparent' }}>
+                {dark?'☀️':'🌙'}
+              </button>
+              <button onClick={onLogout} style={{ background:'transparent',border:'none',cursor:'pointer',padding:'6px',borderRadius:'10px',fontSize:'16px',color:dark?'#6B7280':'#9CA3AF',WebkitTapHighlightColor:'transparent' }}>⬅</button>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div style={{ maxWidth:'640px',margin:'0 auto',padding:'20px 16px 50px',display:'flex',flexDirection:'column',gap:'16px' }}>
+            <div style={{ display:'flex',alignItems:'center',gap:'10px',marginBottom:'2px',animation:'slideUp 0.3s both' }}>
+              <span style={{ fontSize:'26px' }}>🏠</span>
+              <h2 style={{ fontSize:'22px',fontWeight:'900',color:dark?'white':'#111827',margin:0,letterSpacing:'-0.5px' }}>ממן מטלות</h2>
+            </div>
+
+            {DAYS.map((day,i) => (
+              <DaySection key={day.key} day={day} dateStr={dayDates[day.key]} currentUser={user} dark={dark} sIdx={i} />
+            ))}
+
+            <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(260px,1fr))',gap:'16px' }}>
+              <ActivityFeed activities={activities} dark={dark} />
+              <StatsPanel stats={stats} dark={dark} />
+            </div>
+
+            <p style={{ textAlign:'center',fontSize:'12px',color:dark?'#374151':'#D1D5DB',paddingTop:'8px',margin:0 }}>
+              ממן מטלות · נתונים נמחקים אוטומטית אחרי 3 ימים
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── App Root ──────────────────────────────────────────────────────────────
+    function App() {
+      const [user,  setUser]  = useState(null);
+      const [dark,  setDark]  = useState(false);
+      const [ready, setReady] = useState(false);
+
+      useEffect(() => {
+        try {
+          const code = sessionStorage.getItem('maman_session');
+          if (code && USERS[code]) setUser(USERS[code]);
+          setDark(localStorage.getItem('maman_dark') === 'true');
+        } catch {}
+        setReady(true);
+      }, []);
+
+      useEffect(() => {
+        document.documentElement.classList.toggle('dark', dark);
+        try { localStorage.setItem('maman_dark', dark); } catch {}
+      }, [dark]);
+
+      if (!ready) return (
+        <div style={{ minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#1e1b4b' }}>
+          <p style={{ color:'rgba(255,255,255,0.3)',fontSize:'18px',fontFamily:'Heebo,sans-serif',animation:'pulse 1.5s infinite' }}>ממן מטלות 🏠</p>
+        </div>
+      );
+
+      if (!user) return (
+        <LoginScreen onLogin={code => {
+          try { sessionStorage.setItem('maman_session', code); } catch {}
+          setUser(USERS[code]);
+        }} />
+      );
+
+      return (
+        <Dashboard user={user} dark={dark} onToggleDark={() => setDark(d => !d)} onLogout={() => {
+          try { sessionStorage.removeItem('maman_session'); } catch {}
+          setUser(null);
+        }} />
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
