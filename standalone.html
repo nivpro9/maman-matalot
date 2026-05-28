@@ -253,13 +253,22 @@
       return () => { clearInterval(id); window.removeEventListener('_maman', notify); };
     }
 
-    // Stats: count completed actions per user from activity log (last 7 days)
+    // Stats: count net completed tasks per user (last 7 days).
+    // For each unique (userId, taskTitle, dateStr) keep only the latest action —
+    // so toggling completed→uncompleted correctly subtracts from the score.
     function subscribeToStats(cb) {
       return subscribeToActivity(activities => {
         const weekAgo = Date.now() - 7*24*60*60*1000;
-        const stats = {};
+        const latest = {};
         activities
-          .filter(a => a.action === 'completed' && a.timestamp > weekAgo)
+          .filter(a => a.timestamp > weekAgo)
+          .forEach(a => {
+            const key = `${a.userId}|${a.taskTitle}|${a.dateStr}`;
+            if (!latest[key] || a.timestamp > latest[key].timestamp) latest[key] = a;
+          });
+        const stats = {};
+        Object.values(latest)
+          .filter(a => a.action === 'completed')
           .forEach(a => { stats[a.userId] = (stats[a.userId] || 0) + 1; });
         cb(stats);
       });
