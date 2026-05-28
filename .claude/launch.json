@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "maman-matalot",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "3500", "--directory", "C:\\Users\\ניב\\OneDrive\\מסמכים\\maman-matalot"],
+      "port": 3500
+    }
+  ]
+}
