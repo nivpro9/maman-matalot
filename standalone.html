@@ -403,32 +403,31 @@
     }
 
     // ─── TaskItem ──────────────────────────────────────────────────────────────
-    function TaskItem({ task, state, currentUserId, onToggle, onDelete, onAssign, dark, idx }) {
+    // Three states:
+    //   1. Unassigned + not done  → show circles "מי יבצע"
+    //   2. Assigned + not done    → show assigned badge + circles (tap same = complete, tap other = reassign)
+    //   3. Done                   → green, show who did it, tap any circle = undo
+    function TaskItem({ task, state, currentUserId, onCircleTap, onDelete, dark, idx }) {
       const done         = state?.completed ?? false;
       const byUser       = state?.completedBy ? USERS[state.completedBy] : null;
       const isOwn        = state?.completedBy === currentUserId;
       const assignedUser = !done && state?.assignedTo ? USERS[state.assignedTo] : null;
-      const [bounce, setBounce] = useState(false);
 
-      function doToggle() {
-        setBounce(true); setTimeout(() => setBounce(false), 400);
-        onToggle(!done);
-      }
-
-      const bg     = done ? (dark ? 'rgba(16,185,129,0.1)'  : 'rgba(16,185,129,0.06)') : (dark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.75)');
-      const border = done ? (dark ? 'rgba(16,185,129,0.22)' : 'rgba(16,185,129,0.22)') : (dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)');
+      const bg     = done ? (dark?'rgba(16,185,129,0.1)':'rgba(16,185,129,0.06)') : (dark?'rgba(255,255,255,0.04)':'rgba(255,255,255,0.75)');
+      const border = done ? (dark?'rgba(16,185,129,0.22)':'rgba(16,185,129,0.22)') : (dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.06)');
 
       return (
         <div style={{ borderRadius:'14px', background:bg, border:`1px solid ${border}`, backdropFilter:'blur(8px)', transition:'all 0.25s', animation:`slideUp 0.35s ${idx*0.07}s both`, overflow:'hidden' }}>
 
-          {/* ── Toggle row (tap to complete) ── */}
-          <div onClick={doToggle} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'13px 14px', cursor:'pointer', WebkitTapHighlightColor:'transparent', userSelect:'none' }}>
-            {/* Checkbox */}
-            <div style={{ width:'28px', height:'28px', borderRadius:'50%', flexShrink:0, border:`2px solid ${done?'#10B981':dark?'rgba(255,255,255,0.22)':'#D1D5DB'}`, background:done?'#10B981':'transparent', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)', transform:bounce?'scale(0.82)':'scale(1)', boxShadow:done?'0 0 0 4px rgba(16,185,129,0.16)':'none' }}>
-              {done && <span style={{ color:'white',fontSize:'13px',fontWeight:'bold',animation:'checkBounce 0.3s' }}>✓</span>}
+          {/* ── Info row (NOT tappable — interaction is only via circles) ── */}
+          <div style={{ display:'flex', alignItems:'center', gap:'10px', padding:'13px 14px' }}>
+            {/* Status indicator */}
+            <div style={{ width:'28px', height:'28px', borderRadius:'50%', flexShrink:0, border:`2px solid ${done?'#10B981':assignedUser?(assignedUser.color):(dark?'rgba(255,255,255,0.22)':'#D1D5DB')}`, background:done?'#10B981':assignedUser?`${assignedUser.color}22`:'transparent', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.3s', boxShadow:done?'0 0 0 4px rgba(16,185,129,0.16)':assignedUser?`0 0 0 3px ${assignedUser.color}30`:'none' }}>
+              {done && <span style={{ color:'white',fontSize:'13px',fontWeight:'bold' }}>✓</span>}
+              {!done && assignedUser && <span style={{ color:assignedUser.color,fontSize:'11px',fontWeight:'800' }}>{assignedUser.name.charAt(0)}</span>}
             </div>
 
-            {/* Text content */}
+            {/* Text */}
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
                 <span style={{ fontSize:'17px',flexShrink:0 }}>{task.emoji}</span>
@@ -436,28 +435,19 @@
                   {task.title}
                 </span>
               </div>
-
-              {/* Creator badge */}
               {!task.isFixed && !done && task.createdByName && (
-                <div style={{ marginTop:'4px', fontSize:'11px', color:USERS[task.createdBy]?.color||'#6B7280', fontWeight:'500' }}>
+                <div style={{ marginTop:'3px', fontSize:'11px', color:USERS[task.createdBy]?.color||'#6B7280', fontWeight:'500' }}>
                   הוסף ע"י {task.createdByName}
                 </div>
               )}
-
-              {/* Assigned badge */}
               {!done && assignedUser && (
-                <div style={{ display:'flex', alignItems:'center', gap:'5px', marginTop:'5px' }}>
-                  <div style={{ width:'16px',height:'16px',borderRadius:'50%',background:assignedUser.color,color:'white',fontSize:'8px',fontWeight:'700',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>
-                    {assignedUser.name.charAt(0)}
-                  </div>
-                  <span style={{ fontSize:'11px',fontWeight:'600',color:assignedUser.color }}>מבצע: {assignedUser.name}</span>
+                <div style={{ marginTop:'3px', fontSize:'11px', fontWeight:'600', color:assignedUser.color }}>
+                  ⏳ ממתין לביצוע על ידי {assignedUser.name}
                 </div>
               )}
-
-              {/* Completion info */}
               {done && byUser && (
-                <div className="fade-in" style={{ display:'flex',alignItems:'center',gap:'6px',marginTop:'6px',flexWrap:'wrap' }}>
-                  <div style={{ width:'18px',height:'18px',borderRadius:'50%',background:byUser.color,color:'white',fontSize:'9px',fontWeight:'700',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>
+                <div className="fade-in" style={{ display:'flex',alignItems:'center',gap:'5px',marginTop:'5px',flexWrap:'wrap' }}>
+                  <div style={{ width:'16px',height:'16px',borderRadius:'50%',background:byUser.color,color:'white',fontSize:'8px',fontWeight:'700',display:'flex',alignItems:'center',justifyContent:'center' }}>
                     {byUser.name.charAt(0)}
                   </div>
                   <span style={{ fontSize:'12px',fontWeight:'700',color:byUser.color }}>{byUser.name}</span>
@@ -465,34 +455,32 @@
                 </div>
               )}
             </div>
-
-            {/* "My task" badge */}
             {done && isOwn && (
               <div className="pop-in" style={{ background:dark?'rgba(16,185,129,0.2)':'rgba(16,185,129,0.1)',color:dark?'#34D399':'#059669',fontSize:'11px',fontWeight:'700',padding:'3px 10px',borderRadius:'999px',flexShrink:0 }}>✓ אתה</div>
             )}
           </div>
 
-          {/* ── Assign bar (completely separate from toggle) ── */}
-          {!done && onAssign && (
-            <div style={{ display:'flex', alignItems:'center', gap:'7px', padding:'0 14px 10px', flexWrap:'wrap' }}>
-              <span style={{ fontSize:'10px', color:dark?'#6B7280':'#9CA3AF', fontWeight:'600', marginLeft:'2px' }}>מי יבצע:</span>
-              {Object.entries(USERS).map(([code, u]) => {
-                const sel = state?.assignedTo === code;
-                return (
-                  <button key={code}
-                    onClick={() => onAssign(sel ? null : code, sel ? null : u.name)}
-                    style={{ width:'30px',height:'30px',borderRadius:'50%',background:sel?u.color:(dark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)'),color:sel?'white':(dark?'#9CA3AF':'#6B7280'),fontSize:'11px',fontWeight:'700',border:`2px solid ${sel?u.color:'transparent'}`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:sel?`0 2px 8px ${u.color}60`:'none',transform:sel?'scale(1.15)':'scale(1)',transition:'all 0.15s',WebkitTapHighlightColor:'transparent',flexShrink:0,outline:'none' }}
-                    title={u.name}>
-                    {u.name.charAt(0)}
-                  </button>
-                );
-              })}
-              {!task.isFixed && onDelete && (
-                <button onClick={onDelete}
-                  style={{ marginRight:'auto',background:'transparent',border:'none',cursor:'pointer',padding:'4px 6px',color:'rgba(239,68,68,0.55)',fontSize:'15px',lineHeight:1,borderRadius:'8px',transition:'all 0.15s',WebkitTapHighlightColor:'transparent',outline:'none' }}>🗑️</button>
-              )}
-            </div>
-          )}
+          {/* ── Circle bar ── */}
+          <div style={{ display:'flex', alignItems:'center', gap:'7px', padding:'0 14px 11px', flexWrap:'wrap' }}>
+            <span style={{ fontSize:'10px', color:dark?'#6B7280':'#9CA3AF', fontWeight:'600' }}>
+              {done ? 'ביטול:' : assignedUser ? 'שנה מבצע:' : 'מי יבצע:'}
+            </span>
+            {Object.entries(USERS).map(([code, u]) => {
+              const isAssigned = state?.assignedTo === code;
+              const isDone     = done && state?.completedBy === code;
+              const highlight  = isAssigned || isDone;
+              return (
+                <button key={code} onClick={() => onCircleTap(code, u.name)}
+                  style={{ width:'32px', height:'32px', borderRadius:'50%', background:highlight?u.color:(dark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)'), color:highlight?'white':(dark?'#9CA3AF':'#6B7280'), fontSize:'11px', fontWeight:'700', border:`2px solid ${highlight?u.color:'transparent'}`, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:highlight?`0 2px 10px ${u.color}55`:'none', transform:highlight?'scale(1.18)':'scale(1)', transition:'all 0.18s', WebkitTapHighlightColor:'transparent', flexShrink:0, outline:'none' }}
+                  title={u.name}>
+                  {u.name.charAt(0)}
+                </button>
+              );
+            })}
+            {!task.isFixed && onDelete && !done && (
+              <button onClick={onDelete} style={{ marginRight:'auto',background:'transparent',border:'none',cursor:'pointer',padding:'4px 6px',color:'rgba(239,68,68,0.5)',fontSize:'15px',lineHeight:1,borderRadius:'8px',WebkitTapHighlightColor:'transparent',outline:'none' }}>🗑️</button>
+            )}
+          </div>
         </div>
       );
     }
@@ -522,11 +510,29 @@
       const ago        = daysAgo(dateStr);
       const expiring   = ago === 2; // expires tonight/tomorrow
 
-      async function handleToggle(task, completed) {
+      // Unified circle-tap state machine:
+      // not-assigned + not-done → assign (pending)
+      // assigned-to-X + not-done → tap X → complete by X
+      // assigned-to-X + not-done → tap Y → reassign to Y
+      // done → tap any circle → undo (back to unassigned)
+      async function handleCircleTap(task, code, name) {
         if (busy.has(task.id)) return;
         setBusy(p => new Set([...p, task.id]));
         try {
-          await toggleTaskForDate(dateStr, task.id, completed, currentUser.code, currentUser.name, task.title, day.fullLabel, currentUser.color);
+          const st   = task.state;
+          const done = st?.completed ?? false;
+          const u    = USERS[code];
+          if (done) {
+            // Undo completion → reset to unassigned
+            await toggleTaskForDate(dateStr, task.id, false, code, name, task.title, day.fullLabel, u?.color||'#6B7280');
+            await assignTask(dateStr, task.id, null, null);
+          } else if (st?.assignedTo === code) {
+            // Same person taps again → complete!
+            await toggleTaskForDate(dateStr, task.id, true, code, name, task.title, day.fullLabel, u?.color||'#10B981');
+          } else {
+            // Assign (or reassign) to this person
+            await assignTask(dateStr, task.id, code, name);
+          }
         } finally {
           setBusy(p => { const n = new Set(p); n.delete(task.id); return n; });
         }
@@ -538,10 +544,6 @@
 
       async function handleDeleteTask(taskKey) {
         await deleteCustomTask(dateStr, taskKey);
-      }
-
-      async function handleAssign(taskKey, userId, userName) {
-        await assignTask(dateStr, taskKey, userId, userName);
       }
 
       return (
@@ -585,9 +587,8 @@
                 task={task}
                 state={task.state}
                 currentUserId={currentUser.code}
-                onToggle={completed => handleToggle(task, completed)}
+                onCircleTap={(code, name) => handleCircleTap(task, code, name)}
                 onDelete={!task.isFixed ? () => handleDeleteTask(task.id) : null}
-                onAssign={(uid, uname) => handleAssign(task.id, uid, uname)}
                 dark={dark}
                 idx={i}
               />
