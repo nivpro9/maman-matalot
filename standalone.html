@@ -466,25 +466,37 @@
             )}
           </div>
 
-          {/* ── Circle bar ── */}
-          <div style={{ display:'flex', alignItems:'center', gap:'7px', padding:'0 14px 11px', flexWrap:'wrap' }}>
-            <span style={{ fontSize:'10px', color:dark?'#6B7280':'#9CA3AF', fontWeight:'600' }}>
-              {done ? 'ביטול:' : assignedUser ? 'שנה מבצע:' : 'מי יבצע:'}
-            </span>
-            {Object.entries(USERS).map(([code, u]) => {
-              const isAssigned = state?.assignedTo === code;
-              const isDone     = done && state?.completedBy === code;
-              const highlight  = isAssigned || isDone;
-              return (
-                <button key={code} onClick={() => onCircleTap(code, u.name)}
-                  style={{ width:'32px', height:'32px', borderRadius:'50%', background:highlight?u.color:(dark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)'), color:highlight?'white':(dark?'#9CA3AF':'#6B7280'), fontSize:'11px', fontWeight:'700', border:`2px solid ${highlight?u.color:'transparent'}`, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:highlight?`0 2px 10px ${u.color}55`:'none', transform:highlight?'scale(1.18)':'scale(1)', transition:'all 0.18s', WebkitTapHighlightColor:'transparent', flexShrink:0, outline:'none' }}
-                  title={u.name}>
-                  {u.name.charAt(0)}
-                </button>
-              );
-            })}
-            {!task.isFixed && onDelete && !done && (
-              <button onClick={onDelete} style={{ marginRight:'auto',background:'transparent',border:'none',cursor:'pointer',padding:'4px 6px',color:'rgba(239,68,68,0.5)',fontSize:'15px',lineHeight:1,borderRadius:'8px',WebkitTapHighlightColor:'transparent',outline:'none' }}>🗑️</button>
+          {/* ── Assign + Done bar ── */}
+          <div style={{ padding:'0 14px 11px' }}>
+            {/* Row 1: who will do it */}
+            <div style={{ display:'flex', alignItems:'center', gap:'7px', flexWrap:'wrap', marginBottom: !done ? '8px' : '0' }}>
+              <span style={{ fontSize:'10px', color:'#F97316', fontWeight:'700' }}>
+                {done ? 'בוצע ע"י:' : 'מי יבצע:'}
+              </span>
+              {Object.entries(USERS).map(([code, u]) => {
+                const isAssigned = !done && state?.assignedTo === code;
+                const isDone     = done && state?.completedBy === code;
+                const highlight  = isAssigned || isDone;
+                return (
+                  <button key={code}
+                    onClick={!done ? () => onCircleTap(code, u.name) : undefined}
+                    style={{ width:'30px', height:'30px', borderRadius:'50%', background:highlight?u.color:(dark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)'), color:highlight?'white':(dark?'#9CA3AF':'#6B7280'), fontSize:'11px', fontWeight:'700', border:`2px solid ${highlight?u.color:'transparent'}`, cursor:done?'default':'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:highlight?`0 2px 8px ${u.color}55`:'none', transform:highlight?'scale(1.15)':'scale(1)', transition:'all 0.18s', WebkitTapHighlightColor:'transparent', flexShrink:0, outline:'none' }}
+                    title={u.name}>
+                    {u.name.charAt(0)}
+                  </button>
+                );
+              })}
+              {!task.isFixed && onDelete && !done && (
+                <button onClick={onDelete} style={{ marginRight:'auto', background:'transparent', border:'none', cursor:'pointer', padding:'4px 6px', color:'rgba(239,68,68,0.5)', fontSize:'15px', lineHeight:1, borderRadius:'8px', WebkitTapHighlightColor:'transparent', outline:'none' }}>🗑️</button>
+              )}
+            </div>
+
+            {/* Row 2: Done button (only when not done) */}
+            {!done && (
+              <button onClick={onDirectToggle}
+                style={{ width:'100%', padding:'9px', borderRadius:'10px', background: assignedUser ? 'linear-gradient(135deg,#F97316,#EA580C)' : 'linear-gradient(135deg,#10B981,#059669)', border:'none', color:'white', fontSize:'13px', fontWeight:'700', cursor:'pointer', WebkitTapHighlightColor:'transparent', outline:'none', transition:'all 0.18s', letterSpacing:'0.3px' }}>
+                ✓ {assignedUser ? `${assignedUser.name} ביצע` : 'בוצע'}
+              </button>
             )}
           </div>
         </div>
@@ -529,18 +541,12 @@
         if (busy.has(taskId)) return;
         setBusy(p => new Set([...p, taskId]));
         try {
-          // Always read the LATEST state via ref — avoids stale closure bug
-          const st   = rawTasksRef.current[taskId] || null;
-          const done = st?.completed ?? false;
-          const u    = USERS[code];
-          if (done) {
-            await toggleTaskForDate(dateStr, taskId, false, code, name, taskTitle, day.fullLabel, u?.color||'#6B7280');
+          const st = rawTasksRef.current[taskId] || null;
+          if (st?.completed) return; // circles are assign-only; done button handles completion
+          // Toggle assign: tap same → unassign, tap other → reassign
+          if (st?.assignedTo === code) {
             await assignTask(dateStr, taskId, null, null);
-          } else if (st?.assignedTo === code) {
-            // Same person taps again → complete!
-            await toggleTaskForDate(dateStr, taskId, true, code, name, taskTitle, day.fullLabel, u?.color||'#10B981');
           } else {
-            // Assign (or reassign) to this person
             await assignTask(dateStr, taskId, code, name);
           }
         } finally {
@@ -555,10 +561,13 @@
           const st   = rawTasksRef.current[taskId] || null;
           const done = st?.completed ?? false;
           if (done) {
+            // Undo: back to unassigned
             await toggleTaskForDate(dateStr, taskId, false, currentUser.code, currentUser.name, taskTitle, day.fullLabel, currentUser.color);
             await assignTask(dateStr, taskId, null, null);
           } else {
-            await toggleTaskForDate(dateStr, taskId, true, currentUser.code, currentUser.name, taskTitle, day.fullLabel, currentUser.color);
+            // Complete: use the assigned person if set, otherwise current user
+            const doer = st?.assignedTo ? USERS[st.assignedTo] : currentUser;
+            await toggleTaskForDate(dateStr, taskId, true, doer.code, doer.name, taskTitle, day.fullLabel, doer.color);
           }
         } finally {
           setBusy(p => { const n = new Set(p); n.delete(taskId); return n; });
