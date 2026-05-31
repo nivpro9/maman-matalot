@@ -96,7 +96,7 @@
       if (diff < 0) diff += 7;               // upcoming day this week
       const target = new Date(now);
       target.setDate(now.getDate() - diff);
-      if (diff > 2) target.setDate(target.getDate() + 7); // expired → next week
+      if (diff > 1) target.setDate(target.getDate() + 7); // expired → next week
       // Use local date parts to avoid UTC offset shifting the date by -1 in UTC+2/+3
       return [
         target.getFullYear(),
@@ -158,9 +158,15 @@
     // Remove task and activity data older than 3 days
     function cleanupOldData() {
       try {
+        // Use local date parts (not toISOString which is UTC and can be off by 1 day in UTC+2/+3)
         const cutoff = new Date();
+        cutoff.setHours(0,0,0,0);
         cutoff.setDate(cutoff.getDate() - 3);
-        const cutoffStr = cutoff.toISOString().split('T')[0];
+        const cutoffStr = [
+          cutoff.getFullYear(),
+          String(cutoff.getMonth()+1).padStart(2,'0'),
+          String(cutoff.getDate()).padStart(2,'0'),
+        ].join('-');
         Object.keys(localStorage)
           .filter(k => k.startsWith('maman_tasks_') && k.replace('maman_tasks_','') <= cutoffStr)
           .forEach(k => localStorage.removeItem(k));
@@ -402,12 +408,9 @@
       const byUser       = state?.completedBy ? USERS[state.completedBy] : null;
       const isOwn        = state?.completedBy === currentUserId;
       const assignedUser = !done && state?.assignedTo ? USERS[state.assignedTo] : null;
-      const [bounce, setBounce]       = useState(false);
-      const [showPicker, setShowPicker] = useState(false);
+      const [bounce, setBounce] = useState(false);
 
-      function handleToggle(e) {
-        if (e.target.closest('.task-delete-btn')) return;
-        if (e.target.closest('.assign-area')) return;
+      function doToggle() {
         setBounce(true); setTimeout(() => setBounce(false), 400);
         onToggle(!done);
       }
@@ -416,15 +419,16 @@
       const border = done ? (dark ? 'rgba(16,185,129,0.22)' : 'rgba(16,185,129,0.22)') : (dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)');
 
       return (
-        <div onClick={handleToggle} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'13px 14px', borderRadius:'14px', cursor:'pointer', background:bg, border:`1px solid ${border}`, backdropFilter:'blur(8px)', transition:'all 0.25s', animation:`slideUp 0.35s ${idx*0.07}s both`, WebkitTapHighlightColor:'transparent', userSelect:'none', position:'relative', flexWrap:'wrap' }}>
-          {/* Top row */}
-          <div style={{ display:'flex', alignItems:'center', gap:'10px', width:'100%' }}>
-            {/* Checkbox circle */}
+        <div style={{ borderRadius:'14px', background:bg, border:`1px solid ${border}`, backdropFilter:'blur(8px)', transition:'all 0.25s', animation:`slideUp 0.35s ${idx*0.07}s both`, overflow:'hidden' }}>
+
+          {/* ── Toggle row (tap to complete) ── */}
+          <div onClick={doToggle} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'13px 14px', cursor:'pointer', WebkitTapHighlightColor:'transparent', userSelect:'none' }}>
+            {/* Checkbox */}
             <div style={{ width:'28px', height:'28px', borderRadius:'50%', flexShrink:0, border:`2px solid ${done?'#10B981':dark?'rgba(255,255,255,0.22)':'#D1D5DB'}`, background:done?'#10B981':'transparent', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)', transform:bounce?'scale(0.82)':'scale(1)', boxShadow:done?'0 0 0 4px rgba(16,185,129,0.16)':'none' }}>
               {done && <span style={{ color:'white',fontSize:'13px',fontWeight:'bold',animation:'checkBounce 0.3s' }}>✓</span>}
             </div>
 
-            {/* Content */}
+            {/* Text content */}
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
                 <span style={{ fontSize:'17px',flexShrink:0 }}>{task.emoji}</span>
@@ -433,20 +437,20 @@
                 </span>
               </div>
 
-              {/* Creator badge for custom tasks */}
+              {/* Creator badge */}
               {!task.isFixed && !done && task.createdByName && (
-                <div style={{ marginTop:'4px', fontSize:'11px', color:USERS[task.createdBy]?.color || '#6B7280', fontWeight:'500' }}>
+                <div style={{ marginTop:'4px', fontSize:'11px', color:USERS[task.createdBy]?.color||'#6B7280', fontWeight:'500' }}>
                   הוסף ע"י {task.createdByName}
                 </div>
               )}
 
-              {/* Assigned user badge */}
+              {/* Assigned badge */}
               {!done && assignedUser && (
                 <div style={{ display:'flex', alignItems:'center', gap:'5px', marginTop:'5px' }}>
-                  <div style={{ width:'16px', height:'16px', borderRadius:'50%', background:assignedUser.color, color:'white', fontSize:'8px', fontWeight:'700', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <div style={{ width:'16px',height:'16px',borderRadius:'50%',background:assignedUser.color,color:'white',fontSize:'8px',fontWeight:'700',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>
                     {assignedUser.name.charAt(0)}
                   </div>
-                  <span style={{ fontSize:'11px', fontWeight:'600', color:assignedUser.color }}>מבצע: {assignedUser.name}</span>
+                  <span style={{ fontSize:'11px',fontWeight:'600',color:assignedUser.color }}>מבצע: {assignedUser.name}</span>
                 </div>
               )}
 
@@ -464,48 +468,28 @@
 
             {/* "My task" badge */}
             {done && isOwn && (
-              <div className="pop-in" style={{ background:dark?'rgba(16,185,129,0.2)':'rgba(16,185,129,0.1)', color:dark?'#34D399':'#059669', fontSize:'11px',fontWeight:'700', padding:'3px 10px',borderRadius:'999px',flexShrink:0 }}>✓ אתה</div>
-            )}
-
-            {/* Assign button */}
-            {!done && onAssign && (
-              <button className="assign-area" onClick={e => { e.stopPropagation(); setShowPicker(p => !p); }}
-                style={{ background:showPicker?(dark?'rgba(99,102,241,0.25)':'rgba(99,102,241,0.1)'):'transparent', border:`1px solid ${showPicker?'rgba(99,102,241,0.5)':(dark?'rgba(255,255,255,0.12)':'rgba(0,0,0,0.08)')}`, borderRadius:'8px', cursor:'pointer', padding:'4px 7px', fontSize:'15px', flexShrink:0, lineHeight:1, transition:'all 0.15s', WebkitTapHighlightColor:'transparent' }}
-                title="שייך מבצע">
-                {assignedUser
-                  ? <span style={{ display:'flex',alignItems:'center',justifyContent:'center',width:'18px',height:'18px',borderRadius:'50%',background:assignedUser.color,color:'white',fontSize:'9px',fontWeight:'700' }}>{assignedUser.name.charAt(0)}</span>
-                  : '👤'}
-              </button>
-            )}
-
-            {/* Delete button for custom tasks */}
-            {!task.isFixed && onDelete && (
-              <button className="task-delete-btn" onClick={e => { e.stopPropagation(); onDelete(); }}
-                style={{ background:'transparent',border:'none',cursor:'pointer',padding:'4px 6px',color:'rgba(239,68,68,0.55)',fontSize:'15px',flexShrink:0,lineHeight:1,borderRadius:'8px',transition:'all 0.15s',WebkitTapHighlightColor:'transparent' }}
-                title="מחק מטלה">🗑️</button>
+              <div className="pop-in" style={{ background:dark?'rgba(16,185,129,0.2)':'rgba(16,185,129,0.1)',color:dark?'#34D399':'#059669',fontSize:'11px',fontWeight:'700',padding:'3px 10px',borderRadius:'999px',flexShrink:0 }}>✓ אתה</div>
             )}
           </div>
 
-          {/* User picker (inline, below) */}
-          {!done && showPicker && (
-            <div className="assign-area" onClick={e => e.stopPropagation()}
-              style={{ width:'100%', display:'flex', alignItems:'center', gap:'8px', flexWrap:'wrap', marginTop:'8px', padding:'8px 10px', background:dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.04)', borderRadius:'10px', border:`1px solid ${dark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.07)'}` }}>
-              <span style={{ fontSize:'11px', color:dark?'#9CA3AF':'#6B7280', fontWeight:'600', marginLeft:'4px' }}>מי יבצע?</span>
+          {/* ── Assign bar (completely separate from toggle) ── */}
+          {!done && onAssign && (
+            <div style={{ display:'flex', alignItems:'center', gap:'7px', padding:'0 14px 10px', flexWrap:'wrap' }}>
+              <span style={{ fontSize:'10px', color:dark?'#6B7280':'#9CA3AF', fontWeight:'600', marginLeft:'2px' }}>מי יבצע:</span>
               {Object.entries(USERS).map(([code, u]) => {
-                const selected = state?.assignedTo === code;
+                const sel = state?.assignedTo === code;
                 return (
-                  <button key={code} onClick={() => { onAssign(selected ? null : code, selected ? null : u.name); setShowPicker(false); }}
-                    style={{ width:'32px', height:'32px', borderRadius:'50%', background:u.color, color:'white', fontSize:'11px', fontWeight:'700', border:`2px solid ${selected?'white':'transparent'}`, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:selected?`0 0 0 2px ${u.color}`:'none', transform:selected?'scale(1.18)':'scale(1)', transition:'all 0.15s', WebkitTapHighlightColor:'transparent', flexShrink:0, outline:'none' }}
+                  <button key={code}
+                    onClick={() => onAssign(sel ? null : code, sel ? null : u.name)}
+                    style={{ width:'30px',height:'30px',borderRadius:'50%',background:sel?u.color:(dark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)'),color:sel?'white':(dark?'#9CA3AF':'#6B7280'),fontSize:'11px',fontWeight:'700',border:`2px solid ${sel?u.color:'transparent'}`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:sel?`0 2px 8px ${u.color}60`:'none',transform:sel?'scale(1.15)':'scale(1)',transition:'all 0.15s',WebkitTapHighlightColor:'transparent',flexShrink:0,outline:'none' }}
                     title={u.name}>
                     {u.name.charAt(0)}
                   </button>
                 );
               })}
-              {state?.assignedTo && (
-                <button onClick={() => { onAssign(null, null); setShowPicker(false); }}
-                  style={{ padding:'0 10px', height:'28px', borderRadius:'8px', background:'transparent', border:`1px solid ${dark?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.1)'}`, color:dark?'#9CA3AF':'#6B7280', cursor:'pointer', fontSize:'11px', fontWeight:'500', WebkitTapHighlightColor:'transparent', outline:'none' }}>
-                  הסר שיוך
-                </button>
+              {!task.isFixed && onDelete && (
+                <button onClick={onDelete}
+                  style={{ marginRight:'auto',background:'transparent',border:'none',cursor:'pointer',padding:'4px 6px',color:'rgba(239,68,68,0.55)',fontSize:'15px',lineHeight:1,borderRadius:'8px',transition:'all 0.15s',WebkitTapHighlightColor:'transparent',outline:'none' }}>🗑️</button>
               )}
             </div>
           )}
