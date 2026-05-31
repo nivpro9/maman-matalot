@@ -407,7 +407,7 @@
     //   1. Unassigned + not done  → show circles "מי יבצע"
     //   2. Assigned + not done    → show assigned badge + circles (tap same = complete, tap other = reassign)
     //   3. Done                   → green, show who did it, tap any circle = undo
-    function TaskItem({ task, state, currentUserId, onCircleTap, onDelete, dark, idx }) {
+    function TaskItem({ task, state, currentUserId, onCircleTap, onDirectToggle, onDelete, dark, idx }) {
       const done         = state?.completed ?? false;
       const byUser       = state?.completedBy ? USERS[state.completedBy] : null;
       const isOwn        = state?.completedBy === currentUserId;
@@ -419,8 +419,8 @@
       return (
         <div style={{ borderRadius:'14px', background:bg, border:`1px solid ${border}`, backdropFilter:'blur(8px)', transition:'all 0.25s', animation:`slideUp 0.35s ${idx*0.07}s both`, overflow:'hidden' }}>
 
-          {/* ── Info row (NOT tappable — interaction is only via circles) ── */}
-          <div style={{ display:'flex', alignItems:'center', gap:'10px', padding:'13px 14px' }}>
+          {/* ── Info row — tap to quick-complete/undo ── */}
+          <div onClick={onDirectToggle} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'13px 14px', cursor:'pointer', WebkitTapHighlightColor:'transparent', userSelect:'none' }}>
             {/* Status indicator */}
             <div style={{ width:'28px', height:'28px', borderRadius:'50%', flexShrink:0, border:`2px solid ${done?'#10B981':assignedUser?(assignedUser.color):(dark?'rgba(255,255,255,0.22)':'#D1D5DB')}`, background:done?'#10B981':assignedUser?`${assignedUser.color}22`:'transparent', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.3s', boxShadow:done?'0 0 0 4px rgba(16,185,129,0.16)':assignedUser?`0 0 0 3px ${assignedUser.color}30`:'none' }}>
               {done && <span style={{ color:'white',fontSize:'13px',fontWeight:'bold' }}>✓</span>}
@@ -489,8 +489,12 @@
     function DaySection({ day, dateStr, currentUser, dark, sIdx }) {
       const [rawTasks, setRawTasks] = useState({});
       const [busy, setBusy]         = useState(new Set());
+      const rawTasksRef             = useRef({});
 
-      useEffect(() => subscribeToTasksForDate(dateStr, setRawTasks), [dateStr]);
+      useEffect(() => subscribeToTasksForDate(dateStr, data => {
+        rawTasksRef.current = data;
+        setRawTasks(data);
+      }), [dateStr]);
 
       // Separate fixed task states and custom tasks
       const fixedItems = DEFAULT_TASKS.map(t => ({ ...t, state: rawTasks[t.id] || null }));
@@ -515,26 +519,43 @@
       // assigned-to-X + not-done → tap X → complete by X
       // assigned-to-X + not-done → tap Y → reassign to Y
       // done → tap any circle → undo (back to unassigned)
-      async function handleCircleTap(task, code, name) {
-        if (busy.has(task.id)) return;
-        setBusy(p => new Set([...p, task.id]));
+      async function handleCircleTap(taskId, taskTitle, code, name) {
+        if (busy.has(taskId)) return;
+        setBusy(p => new Set([...p, taskId]));
         try {
-          const st   = task.state;
+          // Always read the LATEST state via ref — avoids stale closure bug
+          const st   = rawTasksRef.current[taskId] || null;
           const done = st?.completed ?? false;
           const u    = USERS[code];
           if (done) {
-            // Undo completion → reset to unassigned
-            await toggleTaskForDate(dateStr, task.id, false, code, name, task.title, day.fullLabel, u?.color||'#6B7280');
-            await assignTask(dateStr, task.id, null, null);
+            await toggleTaskForDate(dateStr, taskId, false, code, name, taskTitle, day.fullLabel, u?.color||'#6B7280');
+            await assignTask(dateStr, taskId, null, null);
           } else if (st?.assignedTo === code) {
             // Same person taps again → complete!
-            await toggleTaskForDate(dateStr, task.id, true, code, name, task.title, day.fullLabel, u?.color||'#10B981');
+            await toggleTaskForDate(dateStr, taskId, true, code, name, taskTitle, day.fullLabel, u?.color||'#10B981');
           } else {
             // Assign (or reassign) to this person
-            await assignTask(dateStr, task.id, code, name);
+            await assignTask(dateStr, taskId, code, name);
           }
         } finally {
-          setBusy(p => { const n = new Set(p); n.delete(task.id); return n; });
+          setBusy(p => { const n = new Set(p); n.delete(taskId); return n; });
+        }
+      }
+
+      async function handleDirectToggle(taskId, taskTitle) {
+        if (busy.has(taskId)) return;
+        setBusy(p => new Set([...p, taskId]));
+        try {
+          const st   = rawTasksRef.current[taskId] || null;
+          const done = st?.completed ?? false;
+          if (done) {
+            await toggleTaskForDate(dateStr, taskId, false, currentUser.code, currentUser.name, taskTitle, day.fullLabel, currentUser.color);
+            await assignTask(dateStr, taskId, null, null);
+          } else {
+            await toggleTaskForDate(dateStr, taskId, true, currentUser.code, currentUser.name, taskTitle, day.fullLabel, currentUser.color);
+          }
+        } finally {
+          setBusy(p => { const n = new Set(p); n.delete(taskId); return n; });
         }
       }
 
@@ -587,7 +608,8 @@
                 task={task}
                 state={task.state}
                 currentUserId={currentUser.code}
-                onCircleTap={(code, name) => handleCircleTap(task, code, name)}
+                onCircleTap={(code, name) => handleCircleTap(task.id, task.title, code, name)}
+                onDirectToggle={() => handleDirectToggle(task.id, task.title)}
                 onDelete={!task.isFixed ? () => handleDeleteTask(task.id) : null}
                 dark={dark}
                 idx={i}
